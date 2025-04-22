@@ -774,5 +774,455 @@ Function Check-BackupsInParallel {
             New-Item -Path $TempExtractionFolder -ItemType Directory -Force | Out-Null
         }
         
-        # Démarrage des jobs
+# Complétion de Check-BackupsInParallel
         foreach ($backup in $Backups) {
+            $jobParams = @{
+                ScriptBlock = $scriptBlock
+                ArgumentList = @($backup.Path, $backup.Name, $backup.IsCompressed, $TempExtractionFolder)
+            }
+            
+            # Attendre si on a atteint le nombre max de jobs concurrents
+            while ((Get-Job -State Running).Count -ge $throttleLimit) {
+                Start-Sleep -Seconds 1
+                
+                # Vérifier les jobs terminés
+                $completedJobs = Get-Job -State Completed
+                foreach ($job in $completedJobs) {
+                    $jobResult = Receive-Job -Job $job
+                    $results += $jobResult
+                    
+                    # Mise à jour des compteurs globaux
+                    $script:TotalBackupsChecked++
+                    if ($jobResult.Success) {
+                        $script:TotalBackupsValid++
+                    } else {
+                        $script:TotalBackupsInvalid++
+                    }
+                    
+                    $script:TotalFilesChecked += $jobResult.FilesChecked
+                    $script:TotalFilesValid += $jobResult.FilesValid
+                    $script:TotalFilesInvalid += $jobResult.FilesInvalid + $jobResult.MissingFiles
+                    
+                    # Log du résultat
+                    $status = if ($jobResult.Success) { "SUCCESS" } else { "ERROR" }
+                    Write-Log "Résultat [JOB]: $(if($jobResult.Success){"VALIDE"}else{"INVALIDE"}) - $($jobResult.BackupName) - $($jobResult.FilesValid)/$($jobResult.FilesChecked) fichiers valides" -Type $status
+                    
+                    Remove-Job -Job $job
+                }
+            }
+            
+            # Démarrer le job
+            $jobs += Start-Job @jobParams
+            Write-Log "Job démarré pour $($backup.Name)" -Type "INFO" -NoConsole
+        }
+        
+        # Attendre que tous les jobs se terminent
+        Write-Log "Attente de la fin des jobs..." -Type "INFO"
+        
+        while (Get-Job) {
+            $completedJobs = Get-Job -State Completed
+            foreach ($job in $completedJobs) {
+                $jobResult = Receive-Job -Job $job
+                $results += $jobResult
+                
+                # Mise à jour des compteurs globaux
+                $script:TotalBackupsChecked++
+                if ($jobResult.Success) {
+                    $script:TotalBackupsValid++
+                } else {
+                    $script:TotalBackupsInvalid++
+                }
+                
+                $script:TotalFilesChecked += $jobResult.FilesChecked
+                $script:TotalFilesValid += $jobResult.FilesValid
+                $script:TotalFilesInvalid += $jobResult.FilesInvalid + $jobResult.MissingFiles
+                
+                # Log du résultat
+                $status = if ($jobResult.Success) { "SUCCESS" } else { "ERROR" }
+                Write-Log "Résultat [JOB]: $(if($jobResult.Success){"VALIDE"}else{"INVALIDE"}) - $($jobResult.BackupName) - $($jobResult.FilesValid)/$($jobResult.FilesChecked) fichiers valides" -Type $status
+                
+                Remove-Job -Job $job
+            }
+            
+            # S'il reste des jobs en cours, attendre un peu
+            if (Get-Job) {
+                Start-Sleep -Seconds 2
+            }
+        }
+        
+        Write-Log "Tous les jobs terminés" -Type "INFO"
+        return $results
+    } catch {
+        Write-Log "Erreur lors du traitement parallèle : $_" -Type "ERROR"
+        
+        # Nettoyer les jobs restants
+        Get-Job | Remove-Job -Force
+        
+        return @()
+    }
+}
+
+# =============================
+# FONCTIONS DE NOTIFICATION PAR EMAIL
+# =============================
+Function Send-NotificationEmail {
+    param(
+        [Parameter(Mandatory=$true)]
+        [object[]]$Results,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$ErrorsOnly = $EmailErrorsOnly
+    )
+    
+    try {
+        # Vérifier si on doit envoyer un email
+        if (!$EnableNotification) {
+            Write-Log "Notifications par email désactivées" -Type "INFO"
+            return
+        }
+        
+        $invalidBackups = $Results | Where-Object { !$_.Success }
+        $invalidCount = ($invalidBackups | Measure-Object).Count
+        
+        # Si on veut uniquement les erreurs et qu'il n'y en a pas, on n'envoie pas de mail
+        if ($ErrorsOnly -and $invalidCount -eq 0) {
+            Write-Log "Aucune erreur à signaler par email" -Type "INFO"
+            return
+        }
+        
+        # Création du contenu de l'email
+        $subject = "Rapport de vérification d'intégrité des sauvegardes"
+        if ($invalidCount -gt 0) {
+            $subject += " - $invalidCount problème(s) détecté(s)"
+        } else {
+            $subject += " - Tout est OK"
+        }
+        
+        $htmlBody = @"
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; }
+        th { background-color: #f2f2f2; text-align: left; }
+        .success { background-color: #dff0d8; }
+        .error { background-color: #f2dede; }
+        .summary { font-weight: bold; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <h2>Rapport de vérification d'intégrité des sauvegardes</h2>
+    
+    <div class="summary">
+        <p>Date de vérification: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")</p>
+        <p>Sauvegardes vérifiées: $script:TotalBackupsChecked</p>
+        <p>Sauvegardes valides: $script:TotalBackupsValid</p>
+        <p>Sauvegardes invalides: $script:TotalBackupsInvalid</p>
+        <p>Fichiers vérifiés: $script:TotalFilesChecked</p>
+        <p>Fichiers valides: $script:TotalFilesValid</p>
+        <p>Fichiers invalides: $script:TotalFilesInvalid</p>
+    </div>
+    
+    <h3>Détails des sauvegardes</h3>
+    <table>
+        <tr>
+            <th>Nom</th>
+            <th>État</th>
+            <th>Fichiers valides</th>
+            <th>Fichiers invalides</th>
+            <th>Fichiers manquants</th>
+        </tr>
+"@
+        
+        foreach ($result in $Results) {
+            $rowClass = if ($result.Success) { "success" } else { "error" }
+            $status = if ($result.Success) { "VALIDE" } else { "INVALIDE" }
+            
+            $htmlBody += @"
+        <tr class="$rowClass">
+            <td>$($result.BackupName)</td>
+            <td>$status</td>
+            <td>$($result.FilesValid)</td>
+            <td>$($result.FilesInvalid)</td>
+            <td>$($result.MissingFiles)</td>
+        </tr>
+"@
+        }
+        
+        $htmlBody += @"
+    </table>
+    
+    <h3>Détails des erreurs</h3>
+"@
+        
+        if ($invalidCount -gt 0) {
+            foreach ($invalid in $invalidBackups) {
+                $htmlBody += @"
+    <h4>$($invalid.BackupName)</h4>
+    <pre>$($invalid.Details)</pre>
+    <hr>
+"@
+            }
+        } else {
+            $htmlBody += "<p>Aucune erreur détectée.</p>"
+        }
+        
+        $htmlBody += @"
+</body>
+</html>
+"@
+        
+        # Paramètres de l'email
+        $mailParams = @{
+            From = $MailFrom
+            To = $MailTo
+            Subject = $subject
+            Body = $htmlBody
+            BodyAsHtml = $true
+            SmtpServer = $SmtpServer
+        }
+        
+        # Envoi de l'email
+        Send-MailMessage @mailParams
+        Write-Log "Email de notification envoyé à $MailTo" -Type "SUCCESS"
+    } catch {
+        Write-Log "Erreur lors de l'envoi de l'email de notification : $_" -Type "ERROR"
+    }
+}
+
+# =============================
+# NETTOYAGE DES FICHIERS TEMPORAIRES
+# =============================
+Function Remove-TemporaryFiles {
+    try {
+        if (Test-Path $TempExtractionFolder) {
+            Write-Log "Nettoyage des fichiers temporaires..." -Type "INFO"
+            
+            # Supprimer tous les fichiers temporaires
+            foreach ($tempFile in $script:TemporaryFiles) {
+                if (Test-Path $tempFile) {
+                    Remove-Item -Path $tempFile -Recurse -Force
+                }
+            }
+            
+            # Essayer de supprimer le dossier temporaire
+            if ((Get-ChildItem -Path $TempExtractionFolder -Recurse | Measure-Object).Count -eq 0) {
+                Remove-Item -Path $TempExtractionFolder -Force
+                Write-Log "Dossier temporaire supprimé" -Type "INFO" -NoConsole
+            } else {
+                Write-Log "Impossible de supprimer complètement le dossier temporaire, certains fichiers sont peut-être encore en cours d'utilisation" -Type "WARNING" -NoConsole
+            }
+        }
+    } catch {
+        Write-Log "Erreur lors du nettoyage des fichiers temporaires : $_" -Type "ERROR"
+    }
+}
+
+# =============================
+# EXPORT DES RÉSULTATS
+# =============================
+Function Export-CheckResults {
+    param(
+        [Parameter(Mandatory=$true)]
+        [object[]]$Results
+    )
+    
+    try {
+        # Créer un objet de rapport
+        $report = [PSCustomObject]@{
+            Date = Get-Date
+            BackupsChecked = $script:TotalBackupsChecked
+            BackupsValid = $script:TotalBackupsValid
+            BackupsInvalid = $script:TotalBackupsInvalid
+            FilesChecked = $script:TotalFilesChecked
+            FilesValid = $script:TotalFilesValid
+            FilesInvalid = $script:TotalFilesInvalid
+            Details = $Results
+        }
+        
+        # Exporter en JSON
+        $reportPath = "$PSScriptRoot\integrity_report_$(Get-Date -Format 'yyyyMMdd_HHmmss').json"
+        $report | ConvertTo-Json -Depth 4 | Out-File -FilePath $reportPath -Encoding UTF8
+        Write-Log "Rapport exporté vers $reportPath" -Type "SUCCESS"
+        
+        # Exporter en CSV
+        $csvPath = "$PSScriptRoot\integrity_report_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+        $Results | Select-Object BackupName, Success, FilesChecked, FilesValid, FilesInvalid, MissingFiles, FileLogErrors | 
+            Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
+        Write-Log "Rapport CSV exporté vers $csvPath" -Type "SUCCESS"
+        
+        # Mise à jour du fichier d'historique
+        Update-BackupHistory -Results $Results
+        
+        return $reportPath
+    } catch {
+        Write-Log "Erreur lors de l'export des résultats : $_" -Type "ERROR"
+        return $null
+    }
+}
+
+# =============================
+# MISE À JOUR DE L'HISTORIQUE
+# =============================
+Function Update-BackupHistory {
+    param(
+        [Parameter(Mandatory=$true)]
+        [object[]]$Results
+    )
+    
+    try {
+        # Charger l'historique existant ou créer un nouveau
+        $history = @()
+        if (Test-Path $BackupHistoryFile) {
+            $history = Get-Content -Path $BackupHistoryFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+            if ($null -eq $history) { $history = @() }
+        }
+        
+        # Date actuelle
+        $checkDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        
+        # Ajouter les nouveaux résultats
+        foreach ($result in $Results) {
+            $historyItem = [PSCustomObject]@{
+                Date = $checkDate
+                BackupName = $result.BackupName
+                BackupPath = $result.BackupPath
+                Success = $result.Success
+                FilesChecked = $result.FilesChecked
+                FilesValid = $result.FilesValid
+                FilesInvalid = $result.FilesInvalid
+                MissingFiles = $result.MissingFiles
+            }
+            
+            $history += $historyItem
+        }
+        
+        # Limiter l'historique aux 1000 dernières vérifications
+        if ($history.Count -gt 1000) {
+            $history = $history | Select-Object -Last 1000
+        }
+        
+        # Sauvegarder l'historique
+        $history | ConvertTo-Json | Out-File -FilePath $BackupHistoryFile -Encoding UTF8
+        Write-Log "Historique des vérifications mis à jour" -Type "INFO" -NoConsole
+    } catch {
+        Write-Log "Erreur lors de la mise à jour de l'historique : $_" -Type "ERROR"
+    }
+}
+
+# =============================
+# FONCTION PRINCIPALE
+# =============================
+Function Start-IntegrityCheck {
+    param(
+        [Parameter(Mandatory=$false)]
+        [string]$BackupFolder = $BackupDestination,
+        
+        [Parameter(Mandatory=$false)]
+        [int]$DaysToScan = $ScanDepth
+    )
+    
+    try {
+        Write-Log "Début de la vérification d'intégrité des sauvegardes" -Type "INFO"
+        Write-Log "Dossier de sauvegardes : $BackupFolder" -Type "INFO"
+        Write-Log "Profondeur de scan : $DaysToScan jours" -Type "INFO"
+        
+        # Création du dossier temporaire
+        if (!(Test-Path $TempExtractionFolder)) {
+            New-Item -Path $TempExtractionFolder -ItemType Directory -Force | Out-Null
+        }
+        
+        # Récupération des sauvegardes récentes
+        $backups = Get-RecentBackups -BackupRoot $BackupFolder -DaysToScan $DaysToScan
+        
+        if ($backups.Count -eq 0) {
+            Write-Log "Aucune sauvegarde trouvée à vérifier" -Type "WARNING"
+            return $null
+        }
+        
+        Write-Log "Nombre de sauvegardes à vérifier : $($backups.Count)" -Type "INFO"
+        
+        # Vérification des sauvegardes
+        if ($EnableParallelProcessing -and $backups.Count -gt 1) {
+            Write-Log "Utilisation du traitement parallèle" -Type "INFO"
+            $results = Check-BackupsInParallel -Backups $backups -MaxJobs $MaxParallelJobs
+        } else {
+            Write-Log "Utilisation du traitement séquentiel" -Type "INFO"
+            $results = @()
+            foreach ($backup in $backups) {
+                $results += Check-Backup -Backup $backup
+            }
+        }
+        
+        # Export des résultats
+        $reportPath = Export-CheckResults -Results $results
+        
+        # Envoi de notification par email
+        Send-NotificationEmail -Results $results
+        
+        return $results
+    } catch {
+        Write-Log "Erreur critique lors de la vérification d'intégrité : $_" -Type "ERROR"
+        return $null
+    } finally {
+        # Nettoyage final
+        Remove-TemporaryFiles
+    }
+}
+
+# =============================
+# EXÉCUTION PRINCIPALE
+# =============================
+try {
+    Write-Log "============================================" -Type "INFO"
+    Write-Log "Démarrage du script de vérification d'intégrité" -Type "INFO"
+    Write-Log "Version : 1.0" -Type "INFO"
+    Write-Log "Date : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -Type "INFO"
+    Write-Log "============================================" -Type "INFO"
+    
+    # Vérification des droits administrateur
+    if (-not (Test-IsAdmin)) {
+        Write-Log "Ce script doit être exécuté en tant qu'administrateur." -Type "ERROR"
+        Exit 1
+    }
+    
+    # Exécution de la vérification d'intégrité
+    $results = Start-IntegrityCheck
+    
+    # Affichage des statistiques globales
+    if ($null -ne $results) {
+        $totalDuration = (Get-Date) - $script:StartTime
+        $durationFormatted = "{0:D2}h:{1:D2}m:{2:D2}s" -f $totalDuration.Hours, $totalDuration.Minutes, $totalDuration.Seconds
+        
+        Write-Log "============================================" -Type "INFO"
+        Write-Log "RÉSULTATS GLOBAUX DE LA VÉRIFICATION" -Type "INFO"
+        Write-Log "============================================" -Type "INFO"
+        Write-Log "Durée totale: $durationFormatted" -Type "INFO"
+        Write-Log "Sauvegardes vérifiées: $script:TotalBackupsChecked" -Type "INFO"
+        Write-Log "Sauvegardes valides: $script:TotalBackupsValid" -Type "INFO"
+        Write-Log "Sauvegardes invalides: $script:TotalBackupsInvalid" -Type "INFO"
+        Write-Log "Fichiers vérifiés: $script:TotalFilesChecked" -Type "INFO"
+        Write-Log "Fichiers valides: $script:TotalFilesValid" -Type "INFO"
+        Write-Log "Fichiers invalides: $script:TotalFilesInvalid" -Type "INFO"
+        
+        # Code de sortie selon le résultat
+        if ($script:TotalBackupsInvalid -eq 0) {
+            Write-Log "Vérification terminée avec succès" -Type "SUCCESS"
+            Exit 0
+        } else {
+            Write-Log "Vérification terminée avec $script:TotalBackupsInvalid erreur(s)" -Type "ERROR"
+            Exit 2
+        }
+    } else {
+        Write-Log "Vérification terminée sans résultats" -Type "WARNING"
+        Exit 1
+    }
+} catch {
+    Write-Log "Erreur fatale dans le script principal : $_" -Type "ERROR"
+    Exit 99
+} finally {
+    Write-Log "Fin du script de vérification d'intégrité" -Type "INFO"
+    Write-Log "============================================" -Type "INFO"
+}
