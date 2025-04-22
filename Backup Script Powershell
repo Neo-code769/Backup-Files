@@ -1,0 +1,173 @@
+# ============================================
+# Script PowerShell de sauvegarde avancée
+# Auteur : [Votre Nom]
+# Date : [Date du jour]
+# Description : Script complet avec log, rotation, compression, vérifications, notifications et modularité.
+# ============================================
+
+# =============================
+# PARAMÈTRES DE CONFIGURATION
+# =============================
+$Date = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+$SourcePaths = @("C:\DossierASauvegarder1", "C:\DossierASauvegarder2")  # Liste des dossiers à sauvegarder
+$BackupDestination = "D:\Sauvegardes"                                       # Répertoire de destination
+$LogFile = "D:\Logs\backup_log_$Date.txt"                                 # Fichier de log horodaté
+$MinFreeGB = 5                                                              # Espace minimum requis (en Go)
+$RetentionDays = 30                                                         # Durée de rétention des sauvegardes (en jours)
+$EnableCompression = $true                                                  # Active ou non la compression des sauvegardes
+$EnableDryRun = $false                                                      # Active ou non le mode simulation (aucune action réelle)
+
+# Configuration email (remplacer par vos valeurs)
+$EnableMail = $false
+$MailFrom = "backup@domaine.local"
+$MailTo = "admin@domaine.local"
+$SmtpServer = "smtp.domaine.local"
+
+# =============================
+# FONCTION DE LOG
+# =============================
+Function Write-Log {
+    param(
+        [string]$Message,
+        [string]$Type = "INFO"
+    )
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMessage = "$timestamp [$Type] : $Message"
+    Write-Output $logMessage
+    Add-Content -Path $LogFile -Value $logMessage
+}
+
+# =============================
+# VÉRIFICATION DES DROITS ADMIN
+# =============================
+If (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Write-Host "Ce script doit être exécuté en tant qu'administrateur." -ForegroundColor Red
+    Exit 1
+}
+
+# =============================
+# VÉRIFICATION ESPACE DISQUE
+# =============================
+Function Check-FreeSpace {
+    param([string]$DriveLetter, [int]$MinFreeGB)
+
+    $drive = Get-PSDrive $DriveLetter
+    if ($drive.Free -lt ($MinFreeGB * 1GB)) {
+        Write-Log "Espace disque insuffisant sur $DriveLetter. Moins de $MinFreeGB Go disponibles." -Type "ERROR"
+        Exit 1
+    } else {
+        Write-Log "Espace disque disponible : {0:N2} Go sur $DriveLetter" -f ($drive.Free / 1GB)
+    }
+}
+
+# =============================
+# ROTATION DES SAUVEGARDES
+# =============================
+Function Rotate-Backups {
+    param(
+        [string]$BackupDir,
+        [int]$RetentionDays
+    )
+
+    $deleted = Get-ChildItem -Path $BackupDir -Directory |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$RetentionDays) }
+
+    foreach ($item in $deleted) {
+        Remove-Item -Path $item.FullName -Recurse -Force
+        Write-Log "Ancienne sauvegarde supprimée : $($item.FullName)"
+    }
+}
+
+# =============================
+# COMPRESSION DES DOSSIERS
+# =============================
+Function Compress-Backup {
+    param(
+        [string]$Source,
+        [string]$Destination
+    )
+
+    $zipPath = "$Destination.zip"
+    Compress-Archive -Path $Source -DestinationPath $zipPath -Force
+    Write-Log "Fichier compressé : $zipPath"
+    Remove-Item -Path $Source -Recurse -Force
+}
+
+# =============================
+# NOTIFICATION EMAIL
+# =============================
+Function Send-Notification {
+    param (
+        [string]$Subject,
+        [string]$Body
+    )
+
+    if ($EnableMail) {
+        Send-MailMessage -From $MailFrom -To $MailTo -Subject $Subject -Body $Body -SmtpServer $SmtpServer
+        Write-Log "Notification envoyée à $MailTo"
+    }
+}
+
+# =============================
+# SAUVEGARDE D’UN DOSSIER
+# =============================
+Function Backup-Folder {
+    param(
+        [string]$Source,
+        [string]$Destination
+    )
+
+    try {
+        if (!(Test-Path $Source)) {
+            throw "Le dossier source '$Source' n'existe pas."
+        }
+
+        $FolderName = Split-Path -Path $Source -Leaf
+        $BackupPath = Join-Path -Path $Destination -ChildPath "$FolderName-$Date"
+
+        Write-Log "Préparation à la sauvegarde de '$Source' vers '$BackupPath'"
+
+        if (-not $EnableDryRun) {
+            Copy-Item -Path $Source -Destination $BackupPath -Recurse -Force -ErrorAction Stop
+            Write-Log "Sauvegarde réussie de '$Source' vers '$BackupPath'"
+
+            if ($EnableCompression) {
+                Compress-Backup -Source $BackupPath -Destination $BackupPath
+            }
+        } else {
+            Write-Log "[Dry-Run] Simulation : '$Source' -> '$BackupPath'"
+        }
+    } catch {
+        Write-Log "Erreur lors de la sauvegarde de '$Source' : $_" -Type "ERROR"
+    }
+}
+
+# =============================
+# EXÉCUTION PRINCIPALE
+# =============================
+Function Start-Backup {
+    Write-Log "=== Début du script de sauvegarde ==="
+
+    $driveLetter = ($BackupDestination -split ':')[0]
+    Check-FreeSpace -DriveLetter $driveLetter -MinFreeGB $MinFreeGB
+
+    if (!(Test-Path $BackupDestination)) {
+        Write-Log "Création du dossier de destination : $BackupDestination"
+        New-Item -Path $BackupDestination -ItemType Directory -Force
+    }
+
+    foreach ($src in $SourcePaths) {
+        Backup-Folder -Source $src -Destination $BackupDestination
+    }
+
+    Rotate-Backups -BackupDir $BackupDestination -RetentionDays $RetentionDays
+
+    Write-Log "=== Fin du script de sauvegarde ==="
+    Send-Notification -Subject "Sauvegarde Terminée" -Body "La sauvegarde du $Date est terminée."
+}
+
+# =============================
+# LANCEMENT DU SCRIPT
+# =============================
+Start-Backup
