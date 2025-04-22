@@ -82,7 +82,9 @@ if (-not $BackupHistoryFile) {
 $script:TotalFilesCopied = 0
 $script:TotalFilesSize = 0
 $script:StartTime = Get-Date
-$script:MetricsData = @()
+if (-not $script:MetricsData) {
+    $script:MetricsData = @()
+}
 $script:BackupSuccess = $true
 $script:ErrorCount = 0
 $script:LastFullBackupPath = $null
@@ -129,7 +131,7 @@ Function Write-Log {
     
     # Ajout au fichier de log
     try {
-        Add-Content -Path $LogFile -Value $logMessage -ErrorAction Stop
+        Add-Content -Path $LogFile -Value $logMessage -Encoding UTF8
     } catch {
         Write-Host "ERREUR: Impossible d'écrire dans le fichier log: $_" -ForegroundColor Red
     }
@@ -185,6 +187,10 @@ Function Test-FreeSpace {
 
 # Vérification de l'espace disque disponible
 $DriveLetter = (Split-Path -Qualifier $BackupDestination).TrimEnd(':')
+if (!(Get-PSDrive -Name $DriveLetter -ErrorAction SilentlyContinue)) {
+    Write-Log "Erreur : Le lecteur $DriveLetter n'existe pas." -Type "ERROR"
+    Exit 1
+}
 if (Get-PSDrive -Name $DriveLetter -ErrorAction SilentlyContinue) {
     $FreeSpaceGB = (Get-PSDrive -Name $DriveLetter).Free / 1GB
     if ($FreeSpaceGB -lt $MinFreeGB) {
@@ -217,339 +223,6 @@ Function Get-FileHash256 {
 }
 
 # =============================
-# CRÉER UN MANIFESTE D'INTÉGRITÉ
-# =============================
-Function New-IntegrityManifest {
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$BackupPath
-    )
-    
-    if (!$EnableIntegrityCheck) {
-        return
-    }
-    
-    Write-Log "Création du manifeste d'intégrité pour $BackupPath..." -Type "INFO"
-    
-    $manifestPath = Join-Path -Path $BackupPath -ChildPath "integrity_manifest.json"
-    $manifest = @{}
-    $totalFiles = 0
-    $processedFiles = 0
-    
-    # Compter le nombre total de fichiers pour afficher la progression
-    $totalFiles = (Get-ChildItem -Path $BackupPath -Recurse -File | Measure-Object).Count
-    
-    Get-ChildItem -Path $BackupPath -Recurse -File | ForEach-Object {
-        # Ignorer le manifeste lui-même
-        if ($_.FullName -ne $manifestPath) {
-            $relativePath = $_.FullName.Substring($BackupPath.Length + 1)
-            $hash = Get-FileHash256 -FilePath $_.FullName
-            
-            if ($null -ne $hash) {
-                $manifest[$relativePath] = @{
-                    "Hash" = $hash
-                    "Size" = $_.Length
-                    "LastWriteTime" = $_.LastWriteTime.ToString("o")
-                }
-            }
-            
-            $processedFiles++
-            
-            # Afficher la progression tous les 100 fichiers
-            if ($processedFiles % 100 -eq 0 -or $processedFiles -eq $totalFiles) {
-                $percentComplete = [math]::Round(($processedFiles / $totalFiles) * 100, 1)
-                Write-Log "Calcul d'intégrité: $processedFiles/$totalFiles fichiers ($percentComplete%)" -Type "INFO" -NoConsole
-            }
-        }
-    }
-    
-    $manifestObj = @{
-        "CreationDate" = (Get-Date).ToString("o")
-        "BackupPath" = $BackupPath
-        "BackupMode" = $BackupMode
-        "Files" = $manifest
-    }
-    
-    $manifestObj | ConvertTo-Json -Depth 10 | Set-Content -Path $manifestPath -Force
-    Write-Log "Manifeste d'intégrité créé avec succès: $manifestPath ($totalFiles fichiers)" -Type "SUCCESS"
-}
-
-# =============================
-# VÉRIFIER L'INTÉGRITÉ D'UNE SAUVEGARDE
-# =============================
-Function Test-BackupIntegrity {
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$BackupPath
-    )
-    
-    if (!$EnableIntegrityCheck) {
-        return $true
-    }
-    
-    Write-Log "Vérification de l'intégrité de la sauvegarde: $BackupPath" -Type "INFO"
-    
-    $manifestPath = Join-Path -Path $BackupPath -ChildPath "integrity_manifest.json"
-    
-    if (!(Test-Path $manifestPath)) {
-        Write-Log "Manifeste d'intégrité non trouvé: $manifestPath" -Type "ERROR"
-        return $false
-    }
-    
-    try {
-        $manifest = Get-Content -Path $manifestPath -Raw | ConvertFrom-Json
-        $files = $manifest.Files.PSObject.Properties
-        $totalFiles = $files.Count
-        $processedFiles = 0
-        $failedFiles = 0
-        
-        foreach ($file in $files) {
-            $relativePath = $file.Name
-            $expectedHash = $file.Value.Hash
-            $fullPath = Join-Path -Path $BackupPath -ChildPath $relativePath
-            
-            if (Test-Path $fullPath) {
-                $currentHash = Get-FileHash256 -FilePath $fullPath
-                
-                if ($currentHash -ne $expectedHash) {
-                    Write-Log "Échec de vérification d'intégrité: $relativePath" -Type "ERROR" -NoConsole
-                    $failedFiles++
-                }
-            } else {
-                Write-Log "Fichier manquant: $relativePath" -Type "ERROR" -NoConsole
-                $failedFiles++
-            }
-            
-            $processedFiles++
-            
-            # Afficher la progression tous les 100 fichiers
-            if ($processedFiles % 100 -eq 0 -or $processedFiles -eq $totalFiles) {
-                $percentComplete = [math]::Round(($processedFiles / $totalFiles) * 100, 1)
-                Write-Log "Vérification d'intégrité: $processedFiles/$totalFiles fichiers ($percentComplete%)" -Type "INFO" -NoConsole
-            }
-        }
-        
-        if ($failedFiles -gt 0) {
-            Write-Log "Échec de la vérification d'intégrité: $failedFiles/$totalFiles fichiers corrompus ou manquants" -Type "ERROR"
-            return $false
-        } else {
-            Write-Log "Vérification d'intégrité réussie: $totalFiles fichiers vérifiés" -Type "SUCCESS"
-            return $true
-        }
-    } catch {
-        Write-Log "Erreur lors de la vérification d'intégrité: $_" -Type "ERROR"
-        return $false
-    }
-}
-
-# =============================
-# RÉCUPÉRATION DE L'HISTORIQUE DES SAUVEGARDES
-# =============================
-Function Get-BackupHistory {
-    if (Test-Path $BackupHistoryFile) {
-        try {
-            $history = Get-Content -Path $BackupHistoryFile -Raw | ConvertFrom-Json
-            return $history
-        } catch {
-            Write-Log "Erreur lors de la lecture de l'historique des sauvegardes: $_" -Type "WARNING"
-            return @{
-                "LastFullBackup" = $null
-                "LastIncrementalBackup" = $null
-                "BackupSets" = @()
-            }
-        }
-    } else {
-        return @{
-            "LastFullBackup" = $null
-            "LastIncrementalBackup" = $null
-            "BackupSets" = @()
-        }
-    }
-}
-
-# =============================
-# MISE À JOUR DE L'HISTORIQUE DES SAUVEGARDES
-# =============================
-Function Update-BackupHistory {
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$BackupPath,
-        
-        [Parameter(Mandatory=$true)]
-        [ValidateSet("Complete", "Differential", "Incremental")]
-        [string]$BackupType,
-        
-        [Parameter(Mandatory=$false)]
-        [datetime]$BackupDate = (Get-Date)
-    )
-    
-    try {
-        $history = Get-BackupHistory
-        
-        # Créer un nouvel enregistrement pour cette sauvegarde
-        $newBackup = @{
-            "Path" = $BackupPath
-            "Type" = $BackupType
-            "Date" = $BackupDate.ToString("o")
-            "SourcePaths" = $SourcePaths
-        }
-        
-        # Mettre à jour le dernier type de sauvegarde
-        if ($BackupType -eq "Complete") {
-            $history.LastFullBackup = $newBackup
-        } elseif ($BackupType -eq "Incremental") {
-            $history.LastIncrementalBackup = $newBackup
-        }
-        
-        # Ajouter à l'historique des sauvegardes
-        if ($null -eq $history.BackupSets) {
-            $history.BackupSets = @()
-        }
-        
-        $history.BackupSets += $newBackup
-        
-        # Écrire l'historique mis à jour
-        $history | ConvertTo-Json -Depth 10 | Set-Content -Path $BackupHistoryFile -Force
-        Write-Log "Historique des sauvegardes mis à jour" -Type "INFO" -NoConsole
-    } catch {
-        Write-Log "Erreur lors de la mise à jour de l'historique des sauvegardes: $_" -Type "ERROR"
-    }
-}
-
-# =============================
-# DÉTERMINE SI UN FICHIER DOIT ÊTRE SAUVEGARDÉ SELON LE MODE DE SAUVEGARDE
-# =============================
-Function Test-BackupFile {
-    param(
-        [Parameter(Mandatory=$true)]
-        [System.IO.FileInfo]$File,
-        
-        [Parameter(Mandatory=$true)]
-        [ValidateSet("Complete", "Differential", "Incremental")]
-        [string]$Mode,
-        
-        [Parameter(Mandatory=$false)]
-        [hashtable]$ReferenceData
-    )
-    
-    # En mode complet, on sauvegarde toujours
-    if ($Mode -eq "Complete") {
-        return $true
-    }
-    
-    # Si pas de référence, on sauvegarde par précaution
-    if ($null -eq $ReferenceData) {
-        return $true
-    }
-    
-    # En mode différentiel ou incrémentiel, on vérifie par rapport à la dernière sauvegarde complète
-    if ($Mode -eq "Differential") {
-        $lastFullBackup = $ReferenceData.LastFullBackupDate
-        if ($null -eq $lastFullBackup) {
-            return $true  # Si pas de sauvegarde complète, on sauvegarde
-        }
-        
-        return $File.LastWriteTime -gt $lastFullBackup
-    }
-    
-    # En mode incrémentiel, on vérifie par rapport à la dernière sauvegarde (complète ou incrémentielle)
-    if ($Mode -eq "Incremental") {
-        $lastBackupDate = $ReferenceData.LastBackupDate
-        if ($null -eq $lastBackupDate) {
-            return $true  # Si pas de sauvegarde antérieure, on sauvegarde
-        }
-        
-        return $File.LastWriteTime -gt $lastBackupDate
-    }
-    
-    # Par défaut, on sauvegarde
-    return $true
-}
-
-# =============================
-# PRÉPARE LES DONNÉES DE RÉFÉRENCE POUR LES SAUVEGARDES DIFF/INCR
-# =============================
-Function Get-ReferenceData {
-    param(
-        [Parameter(Mandatory=$true)]
-        [ValidateSet("Complete", "Differential", "Incremental")]
-        [string]$BackupMode
-    )
-    
-    if ($BackupMode -eq "Complete") {
-        return $null
-    }
-    
-    $history = Get-BackupHistory
-    $referenceData = @{}
-    
-    if ($BackupMode -eq "Differential") {
-        if ($null -ne $history.LastFullBackup) {
-            $referenceData.LastFullBackupDate = [datetime]::Parse($history.LastFullBackup.Date)
-            $referenceData.LastFullBackupPath = $history.LastFullBackup.Path
-            Write-Log "Mode différentiel: référence à la sauvegarde complète du $($referenceData.LastFullBackupDate)" -Type "INFO"
-        } else {
-            Write-Log "Aucune sauvegarde complète trouvée. Une sauvegarde complète sera effectuée." -Type "WARNING"
-            return $null
-        }
-    } elseif ($BackupMode -eq "Incremental") {
-        if ($null -ne $history.LastIncrementalBackup) {
-            $referenceData.LastBackupDate = [datetime]::Parse($history.LastIncrementalBackup.Date)
-            $referenceData.LastBackupPath = $history.LastIncrementalBackup.Path
-            Write-Log "Mode incrémentiel: référence à la sauvegarde du $($referenceData.LastBackupDate)" -Type "INFO"
-        } elseif ($null -ne $history.LastFullBackup) {
-            $referenceData.LastBackupDate = [datetime]::Parse($history.LastFullBackup.Date)
-            $referenceData.LastBackupPath = $history.LastFullBackup.Path
-            Write-Log "Mode incrémentiel: première sauvegarde incrémentielle après la sauvegarde complète du $($referenceData.LastBackupDate)" -Type "INFO"
-        } else {
-            Write-Log "Aucune sauvegarde antérieure trouvée. Une sauvegarde complète sera effectuée." -Type "WARNING"
-            return $null
-        }
-    }
-    
-    return $referenceData
-}
-
-# =============================
-# ROTATION DES SAUVEGARDES
-# =============================
-Function Remove-OldBackups {
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$BackupDir,
-        
-        [Parameter(Mandatory=$true)]
-        [int]$RetentionDays
-    )
-    
-    Write-Log "Recherche des sauvegardes obsolètes (plus de $RetentionDays jours)..." -Type "INFO"
-    
-    try {
-        $cutoffDate = (Get-Date).AddDays(-$RetentionDays)
-        $oldBackups = Get-ChildItem -Path $BackupDir -Directory | 
-            Where-Object { $_.LastWriteTime -lt $cutoffDate }
-        
-        if ($oldBackups.Count -eq 0) {
-            Write-Log "Aucune sauvegarde obsolète à supprimer" -Type "INFO"
-            return
-        }
-        
-        Write-Log "Suppression de $($oldBackups.Count) sauvegarde(s) obsolète(s)" -Type "INFO"
-        
-        foreach ($item in $oldBackups) {
-            try {
-                Remove-Item -Path $item.FullName -Recurse -Force
-                Write-Log "Ancienne sauvegarde supprimée : $($item.FullName)" -Type "SUCCESS"
-            } catch {
-                Write-Log "Erreur lors de la suppression de $($item.FullName) : $_" -Type "ERROR"
-            }
-        }
-    } catch {
-        Write-Log "Erreur lors de la rotation des sauvegardes : $_" -Type "ERROR"
-    }
-}
-
-# =============================
 # COMPRESSION DES DOSSIERS
 # =============================
 Function Compress-Backup {
@@ -571,6 +244,12 @@ Function Compress-Backup {
     try {
         $startCompress = Get-Date
         
+        # Vérification s'il y a des fichiers à compresser
+        if ((Get-ChildItem -Path $Source -Recurse -File).Count -eq 0) {
+            Write-Log "Aucun fichier à compresser dans $Source." -Type "WARNING"
+            return
+        }
+
         # Récupération de la taille avant compression
         $originalSize = (Get-ChildItem -Path $Source -Recurse | Measure-Object -Property Length -Sum).Sum
         
@@ -944,6 +623,7 @@ Function Backup-FolderWithRetry {
             
             # Obtention des fichiers sources (récursivement)
             $sourceFiles = Get-ChildItem -Path $Source -Recurse -File
+            Write-Log "Nombre de fichiers trouvés dans $Source : $($sourceFiles.Count)" -Type "INFO"
             $totalFiles = $sourceFiles.Count
             $currentFile = 0
             
