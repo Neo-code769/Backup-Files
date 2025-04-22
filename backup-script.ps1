@@ -26,9 +26,9 @@ try {
 } catch {
     Write-Error "Erreur lors du chargement de la configuration : $_"
     Exit 1
-} finally {
+} finally  {
     Write-Output "Bloc Finally exécuté après le chargement de la configuration."
-
+}
 # =============================
 # CONFIGURATION PAR DÉFAUT SI NON DÉFINIE DANS CONFIG.PS1
 # =============================
@@ -921,29 +921,10 @@ Function Backup-FolderWithRetry {
                 Start-Sleep -Seconds $RetryDelaySeconds
             }
             
-            # Préparation d'un journal des fichiers pour ce dossier
-            $fileLog = @()
-        } catch {
-            Write-Log "Erreur lors de la tentative de sauvegarde : $_" -Type "ERROR"
-        } finally {
-            Write-Log "Bloc Finally exécuté après la tentative de sauvegarde." -Type "INFO"
-        }
-    } while ($retry -le $MaxRetries -and !$success) # Closing the do-while block
-
-    # Obtention des fichiers sources (récursivement)
-    $sourceFiles = Get-ChildItem -Path $Source -Recurse -File
-    $totalFiles = $sourceFiles.Count
-    $currentFile = 0
-
-    do {
-        # Add your logic here for what should happen during each retry
-        Write-Log "Tentative $retry/$MaxRetries pour '$Source'..." -Type "WARNING"
-        Start-Sleep -Seconds $RetryDelaySeconds
-        $retry++
-    } # Closing brace for the do block
-    while ($retry -le $MaxRetries)
-
-    Write-Log "Analyse de $totalFiles fichiers dans '$Source'..." -Type "INFO"
+            # Obtention des fichiers sources (récursivement)
+            $sourceFiles = Get-ChildItem -Path $Source -Recurse -File
+            $totalFiles = $sourceFiles.Count
+            $currentFile = 0
             
             foreach ($file in $sourceFiles) {
                 $currentFile++
@@ -951,7 +932,7 @@ Function Backup-FolderWithRetry {
                 # Déterminer si ce fichier doit être sauvegardé selon le mode
                 $shouldBackup = Test-BackupFile -File $file -Mode $BackupMode -ReferenceData $ReferenceData
                 
-                # Si ce n'est pas necessaire de sauvegarder ce fichier, on passe au suivant
+                # Si ce n'est pas nécessaire de sauvegarder ce fichier, on passe au suivant
                 if (!$shouldBackup) {
                     continue
                 }
@@ -991,57 +972,14 @@ Function Backup-FolderWithRetry {
                 Write-Log "$($errorFiles.Count) fichiers n'ont pas pu être copiés" -Type "ERROR"
             }
         } catch {
-            Write-Log "Erreur lors de la sauvegarde de '$Source' : $_" -Type "ERROR"
+            Write-Log "Erreur lors de la tentative de sauvegarde : $_" -Type "ERROR"
         }
         
         $retry++
-    {
-        Write-Log "Tentative $retry/$MaxRetries pour '$Source'..." -Type "WARNING"
-        Start-Sleep -Seconds $RetryDelaySeconds
-        $retry++
-    {
-        # Add your logic here for what should happen during each retry
-        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
-        Start-Sleep -Seconds $RetryDelaySeconds
-        $retry++
-    {
-        # Add your logic here for what should happen during each retry
-        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
-        Start-Sleep -Seconds $RetryDelaySeconds
-        $retry++
-    {
-        # Add your logic here for what should happen during each retry
-        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
-        Start-Sleep -Seconds $RetryDelaySeconds
-        $retry++
-    } # Closing the do block
-    while ($retry -le $MaxRetries -and !$success) {
-        Write-Log "Tentative $retry/$MaxRetries pour '$Source'..." -Type "WARNING"
-        Start-Sleep -Seconds $RetryDelaySeconds
-        $retry++
-    }
-        # Placeholder for loop body
-        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
-        Start-Sleep -Seconds $RetryDelaySeconds
-    }
-        # Placeholder for loop body
-        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
-        Start-Sleep -Seconds $RetryDelaySeconds
-    }
-        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
-        Start-Sleep -Seconds $RetryDelaySeconds
-    }
-        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
-        Start-Sleep -Seconds $RetryDelaySeconds
-    }
-        # Add your logic here for what should happen during each retry
-        Write-Log "Tentative $retry/$MaxRetries pour '$Source'..." -Type "WARNING"
-        Start-Sleep -Seconds $RetryDelaySeconds
-        $retry++
-    
+    } while ($retry -le $MaxRetries -and !$success)
     
     $endTime = Get-Date
-    $duration = $endTime - $startTime
+    $duration = $endTime - $script:StartTime
     
     # Collecte des métriques
     Add-PerformanceMetric -Operation "Backup-$BackupMode" -Source $Source -Destination $backupPath `
@@ -1061,7 +999,7 @@ Function Backup-FolderWithRetry {
         BackupPath = $backupPath
         Errors = $errorFiles.Count
     }
-
+}
 
 # =============================
 # SAUVEGARDE D'UN DOSSIER
