@@ -888,6 +888,11 @@ Function Backup-FolderWithRetry {
         [int]$RetryDelaySeconds = $RetryDelay
     )
     
+    # Ajout d'une vérification pour s'assurer que $RetryDelaySeconds a une valeur par défaut
+    if (-not $RetryDelaySeconds) {
+        $RetryDelaySeconds = 30  # Valeur par défaut en secondes
+    }
+
     $folderName = Split-Path -Path $Source -Leaf
     $backupPath = Join-Path -Path $Destination -ChildPath "$folderName-$Date"
     
