@@ -18,12 +18,12 @@
 
 # Vérification et définition de $PSScriptRoot si nécessaire
 if (-not $PSScriptRoot) {
-    $ScriptRootPath = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
+    $PSScriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 }
 
 # Chargement du fichier de configuration
 try {
-    $configPath = "$ScriptRootPath\config.ps1"
+    $configPath = Join-Path -Path $PSScriptRoot -ChildPath "config.ps1"
     if (Test-Path $configPath) {
         . $configPath
         Write-Output "Configuration chargée depuis $configPath"
@@ -33,8 +33,6 @@ try {
 } catch {
     Write-Error "Erreur lors du chargement de la configuration : $_"
     Exit 1
-} finally {
-    Write-Output "Bloc Finally exécuté après le chargement de la configuration."
 }
 
 # =============================
