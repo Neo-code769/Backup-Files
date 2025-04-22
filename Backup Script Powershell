@@ -1,27 +1,15 @@
 # ============================================
 # Script PowerShell de sauvegarde avancée
-# Auteur : [Votre Nom]
-# Date : [Date du jour]
-# Description : Script complet avec log, rotation, compression, vérifications, notifications et modularité.
+# Auteur : [TRUBLEREAU PIERRE]
+# Date : [22/04/2025]
+# Description : Script complet avec log, rotation, compression, vérifications, notifications, modularité,
+# externalisation de la configuration, compatibilité planificateur de tâches et base pour CI/CD.
 # ============================================
 
 # =============================
-# PARAMÈTRES DE CONFIGURATION
+# IMPORT DU FICHIER DE CONFIGURATION EXTERNE
 # =============================
-$Date = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$SourcePaths = @("C:\DossierASauvegarder1", "C:\DossierASauvegarder2")  # Liste des dossiers à sauvegarder
-$BackupDestination = "D:\Sauvegardes"                                       # Répertoire de destination
-$LogFile = "D:\Logs\backup_log_$Date.txt"                                 # Fichier de log horodaté
-$MinFreeGB = 5                                                              # Espace minimum requis (en Go)
-$RetentionDays = 30                                                         # Durée de rétention des sauvegardes (en jours)
-$EnableCompression = $true                                                  # Active ou non la compression des sauvegardes
-$EnableDryRun = $false                                                      # Active ou non le mode simulation (aucune action réelle)
-
-# Configuration email (remplacer par vos valeurs)
-$EnableMail = $false
-$MailFrom = "backup@domaine.local"
-$MailTo = "admin@domaine.local"
-$SmtpServer = "smtp.domaine.local"
+. "$PSScriptRoot\config.ps1"
 
 # =============================
 # FONCTION DE LOG
