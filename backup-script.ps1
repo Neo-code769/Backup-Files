@@ -18,12 +18,12 @@
 
 # Vérification et définition de $PSScriptRoot si nécessaire
 if (-not $PSScriptRoot) {
-    $PSScriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
+    $ScriptRootPath = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 }
 
 # Chargement du fichier de configuration
 try {
-    $configPath = "$PSScriptRoot\config.ps1"
+    $configPath = "$ScriptRootPath\config.ps1"
     if (Test-Path $configPath) {
         . $configPath
         Write-Output "Configuration chargée depuis $configPath"
@@ -47,7 +47,7 @@ if (-not $BackupDestination) {
     $BackupDestination = "C:\Backup"
 } 
 if (-not $LogFile) {
-    $LogFile = "$PSScriptRoot\backup.log"
+    $LogFile = "$ScriptRootPath\backup.log"
 }
 if (-not $MinFreeGB) {
     $MinFreeGB = 5
@@ -71,11 +71,11 @@ if (-not $MaxParallelJobs) { $MaxParallelJobs = 4 }
 if ($null -eq $RetryCount) { $RetryCount = 3 }
 if (-not $RetryDelay) { $RetryDelay = 30 }  # secondes
 if ($null -eq $CollectMetrics) { $CollectMetrics = $true }
-if (-not $MetricsOutputPath) { $MetricsOutputPath = "$PSScriptRoot\metrics.csv" }
+if (-not $MetricsOutputPath) { $MetricsOutputPath = "$ScriptRootPath\metrics.csv" }
 $UseSecureCredentials = if ($null -eq $UseSecureCredentials) { $false } else { $UseSecureCredentials }
 if (-not $CredentialName) { $CredentialName = "BackupSMTP" }
 if (-not $BackupHistoryFile) {
-    $BackupHistoryFile = "$PSScriptRoot\backup_history.json"
+    $BackupHistoryFile = "$ScriptRootPath\backup_history.json"
 }
 
 # =============================
