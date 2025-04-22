@@ -8,15 +8,15 @@
 
 # Dossiers source à sauvegarder (tableau)
 $SourcePaths = @(
-    "C:\Users\Public\Documents", 
-    "C:\Projets"
+    "C:\Users\Public\Documents" 
+# Autres dossier à sauvegarder, Exemple: "C:\Projets"
 )
 
 # Destination des sauvegardes
-$BackupDestination = "C:\Sauvegardes"
+$BackupDestination = "C:\Backup"
 
 # Fichier de journalisation
-$LogFile = "C:\Logs\backup.log"
+$LogFile = "C:\Backup\Logs\backup.log"
 
 # Vérifiez que le dossier de log existe, sinon créez-le
 if (!(Test-Path -Path (Split-Path -Path $LogFile -Parent))) {
@@ -57,14 +57,14 @@ $RetryDelay = 30
 
 # Collecter les métriques de performance
 $CollectMetrics = $true
-$MetricsOutputPath = "C:\Logs\metrics.csv"
+$MetricsOutputPath = "C:\Backup\Logs\metrics.csv"
 
 # Utiliser des identifiants sécurisés pour SMTP
 $UseSecureCredentials = $false
 $CredentialName = "BackupSMTP"
 
 # Fichier d'historique des sauvegardes
-$BackupHistoryFile = "C:\Logs\backup_history.json"
+$BackupHistoryFile = "C:\Backup\Logs\backup_history.json"
 
 # Utilisation des chemins source pour effectuer les sauvegardes
 foreach ($SourcePath in $SourcePaths) {
