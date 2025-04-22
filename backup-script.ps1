@@ -913,7 +913,6 @@ Function Backup-FolderWithRetry {
     $retry = 0
     $success = $false
     $errorFiles = @()
-    # Removed unused variable $startTime
     
     do {
         try {
@@ -954,7 +953,6 @@ Function Backup-FolderWithRetry {
                 
                 # Si ce n'est pas necessaire de sauvegarder ce fichier, on passe au suivant
                 if (!$shouldBackup) {
-                    $fileLog += "$($file.FullName) - Ignoré (non modifié)"
                     continue
                 }
                 
@@ -975,16 +973,8 @@ Function Backup-FolderWithRetry {
                 if (Test-Path $destFilePath) {
                     $filesCopied++
                     $sizeCopied += $file.Length
-                    $fileLog += "$($file.FullName) - Copié"
-                    
-                    # Calcul du hash pour vérification d'intégrité (si activé)
-                    if ($EnableIntegrityCheck) {
-                        $fileHash = Get-FileHash256 -FilePath $destFilePath
-                        $fileLog += "  >> Hash: $fileHash"
-                    }
                 } else {
                     $errorFiles += $file.FullName
-                    $fileLog += "$($file.FullName) - ÉCHEC"
                 }
                 
                 # Afficher la progression tous les 100 fichiers ou à la fin
@@ -994,14 +984,9 @@ Function Backup-FolderWithRetry {
                 }
             }
             
-            # Export du journal des fichiers pour ce dossier
-            $fileLogPath = Join-Path -Path $backupPath -ChildPath "_file_log.txt"
-            $fileLog | Out-File -FilePath $fileLogPath -Force
-            
             # Si pas d'erreurs, marquer comme succès
             if ($errorFiles.Count -eq 0) {
                 $success = $true
-                break
             } else {
                 Write-Log "$($errorFiles.Count) fichiers n'ont pas pu être copiés" -Type "ERROR"
             }
