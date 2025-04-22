@@ -183,6 +183,21 @@ Function Test-FreeSpace {
     }
 }
 
+# Vérification de l'espace disque disponible
+$DriveLetter = (Split-Path -Qualifier $BackupDestination).TrimEnd(':')
+if (Get-PSDrive -Name $DriveLetter -ErrorAction SilentlyContinue) {
+    $FreeSpaceGB = (Get-PSDrive -Name $DriveLetter).Free / 1GB
+    if ($FreeSpaceGB -lt $MinFreeGB) {
+        Write-Log -Message "Insufficient disk space. Required: $MinFreeGB GB, Available: $FreeSpaceGB GB."
+        Write-Host "Error: Insufficient disk space. Required: $MinFreeGB GB, Available: $FreeSpaceGB GB."
+        exit 1
+    }
+} else {
+    Write-Log -Message "Error: Drive $DriveLetter does not exist."
+    Write-Host "Error: Drive $DriveLetter does not exist."
+    exit 1
+}
+
 # =============================
 # CALCUL HASH (CHECKSUM) POUR VÉRIFICATION D'INTÉGRITÉ
 # =============================
