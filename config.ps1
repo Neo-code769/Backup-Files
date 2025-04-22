@@ -17,7 +17,7 @@ foreach ($SourcePath in $SourcePaths) {
     $DestinationPath = Join-Path -Path $BackupDestination -ChildPath (Split-Path -Leaf $SourcePath)
     Write-Host "Backing up to: $DestinationPath"
     # Ajoutez ici la logique de sauvegarde pour chaque chemin source
-    # Exemple : Copy-Item -Path $SourcePath -Destination $DestinationPath -Recurse
+    Copy-Item -Path $SourcePath -Destination $DestinationPath -Recurse
 }
 
 # Destination des sauvegardes
