@@ -16,7 +16,7 @@ $SourcePaths = @(
 $BackupDestination = "C:\Sauvegardes"
 
 # Fichier de journalisation
-$LogFile = "D:\Logs\backup.log"
+$LogFile = "C:\Logs\backup.log"
 
 # Vérifiez que le dossier de log existe, sinon créez-le
 if (!(Test-Path -Path (Split-Path -Path $LogFile -Parent))) {
@@ -57,14 +57,14 @@ $RetryDelay = 30
 
 # Collecter les métriques de performance
 $CollectMetrics = $true
-$MetricsOutputPath = "D:\Logs\metrics.csv"
+$MetricsOutputPath = "C:\Logs\metrics.csv"
 
 # Utiliser des identifiants sécurisés pour SMTP
 $UseSecureCredentials = $false
 $CredentialName = "BackupSMTP"
 
 # Fichier d'historique des sauvegardes
-$BackupHistoryFile = "D:\Logs\backup_history.json"
+$BackupHistoryFile = "C:\Logs\backup_history.json"
 
 # Utilisation des chemins source pour effectuer les sauvegardes
 foreach ($SourcePath in $SourcePaths) {
