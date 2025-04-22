@@ -15,6 +15,13 @@
 # =============================
 # IMPORT DU FICHIER DE CONFIGURATION EXTERNE
 # =============================
+
+# Vérification et définition de $PSScriptRoot si nécessaire
+if (-not $PSScriptRoot) {
+    $PSScriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
+}
+
+# Chargement du fichier de configuration
 try {
     $configPath = "$PSScriptRoot\config.ps1"
     if (Test-Path $configPath) {
@@ -22,13 +29,14 @@ try {
         Write-Output "Configuration chargée depuis $configPath"
     } else {
         throw "Fichier de configuration non trouvé : $configPath"
-    } # Closing brace added here
+    }
 } catch {
     Write-Error "Erreur lors du chargement de la configuration : $_"
     Exit 1
-} finally  {
+} finally {
     Write-Output "Bloc Finally exécuté après le chargement de la configuration."
 }
+
 # =============================
 # CONFIGURATION PAR DÉFAUT SI NON DÉFINIE DANS CONFIG.PS1
 # =============================
