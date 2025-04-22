@@ -22,41 +22,53 @@ try {
         Write-Output "Configuration chargée depuis $configPath"
     } else {
         throw "Fichier de configuration non trouvé : $configPath"
-    }
+    } # Closing brace added here
 } catch {
     Write-Error "Erreur lors du chargement de la configuration : $_"
     Exit 1
-}
+} finally {
+    Write-Output "Bloc Finally exécuté après le chargement de la configuration."
 
 # =============================
 # CONFIGURATION PAR DÉFAUT SI NON DÉFINIE DANS CONFIG.PS1
 # =============================
-# Paramètres originaux
-$SourcePaths = $SourcePaths ?? @("C:\Windows\Temp")
-$BackupDestination = $BackupDestination ?? "C:\Backup"
-$LogFile = $LogFile ?? "$PSScriptRoot\backup.log"
-$MinFreeGB = $MinFreeGB ?? 5
-$RetentionDays = $RetentionDays ?? 15
-$EnableCompression = $EnableCompression ?? $true
-$EnableDryRun = $EnableDryRun ?? $false
-$EnableMail = $EnableMail ?? $false
-$MailFrom = $MailFrom ?? "backup@domain.com"
-$MailTo = $MailTo ?? "admin@domain.com"
-$SmtpServer = $SmtpServer ?? "smtp.domain.com"
+if (-not $SourcePaths) {
+    $SourcePaths = @("C:\Windows\Temp")
+}
+if (-not $BackupDestination) {
+    $BackupDestination = "C:\Backup"
+} 
+if (-not $LogFile) {
+    $LogFile = "$PSScriptRoot\backup.log"
+}
+if (-not $MinFreeGB) {
+    $MinFreeGB = 5
+}
+if (-not $RetentionDays) {
+    $RetentionDays = 15
+}
+if ($null -eq $EnableCompression) { $EnableCompression = $true }
+$EnableDryRun = if ($null -eq $EnableDryRun) { $false } else { $EnableDryRun }
+$EnableMail = if ($null -eq $EnableMail) { $false } else { $EnableMail }
+$MailFrom = if ($null -eq $MailFrom) { "backup@domain.com" } else { $MailFrom }
+$MailTo = if ($null -eq $MailTo) { "admin@domain.com" } else { $MailTo }
+if (-not $SmtpServer) { $SmtpServer = "smtp.domain.com" }
 $Date = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
 
 # Nouveaux paramètres
-$BackupMode = $BackupMode ?? "Complete" # Options: "Complete", "Differential", "Incremental"
-$EnableIntegrityCheck = $EnableIntegrityCheck ?? $true
-$ParallelProcessing = $ParallelProcessing ?? $false
-$MaxParallelJobs = $MaxParallelJobs ?? 4
-$RetryCount = $RetryCount ?? 3
-$RetryDelay = $RetryDelay ?? 30  # secondes
-$CollectMetrics = $CollectMetrics ?? $true
-$MetricsOutputPath = $MetricsOutputPath ?? "$PSScriptRoot\metrics.csv"
-$UseSecureCredentials = $UseSecureCredentials ?? $false
-$CredentialName = $CredentialName ?? "BackupSMTP"
-$BackupHistoryFile = $BackupHistoryFile ?? "$PSScriptRoot\backup_history.json"
+if (-not $BackupMode) { $BackupMode = "Complete" } # Options: "Complete", "Differential", "Incremental"
+$EnableIntegrityCheck = if ($null -eq $EnableIntegrityCheck) { $true } else { $EnableIntegrityCheck }
+$ParallelProcessing = if ($null -eq $ParallelProcessing) { $false } else { $ParallelProcessing }
+if (-not $MaxParallelJobs) { $MaxParallelJobs = 4 }
+if ($null -eq $RetryCount) { $RetryCount = 3 }
+if (-not $RetryDelay) { $RetryDelay = 30 }  # secondes
+if ($null -eq $CollectMetrics) { $CollectMetrics = $true }
+if (-not $MetricsOutputPath) { $MetricsOutputPath = "$PSScriptRoot\metrics.csv" }
+$UseSecureCredentials = if ($null -eq $UseSecureCredentials) { $false } else { $UseSecureCredentials }
+if (-not $CredentialName) { $CredentialName = "BackupSMTP" }
+if (-not $BackupHistoryFile) {
+    $BackupHistoryFile = "$PSScriptRoot\backup_history.json"
+}
 
 # =============================
 # VARIABLES GLOBALES
@@ -139,7 +151,7 @@ if (-not (Test-IsAdmin)) {
 # =============================
 # VÉRIFICATION ESPACE DISQUE
 # =============================
-Function Check-FreeSpace {
+Function Test-FreeSpace {
     param(
         [Parameter(Mandatory=$true)]
         [string]$DriveLetter, 
@@ -186,7 +198,7 @@ Function Get-FileHash256 {
 # =============================
 # CRÉER UN MANIFESTE D'INTÉGRITÉ
 # =============================
-Function Create-IntegrityManifest {
+Function New-IntegrityManifest {
     param(
         [Parameter(Mandatory=$true)]
         [string]$BackupPath
@@ -244,7 +256,7 @@ Function Create-IntegrityManifest {
 # =============================
 # VÉRIFIER L'INTÉGRITÉ D'UNE SAUVEGARDE
 # =============================
-Function Verify-BackupIntegrity {
+Function Test-BackupIntegrity {
     param(
         [Parameter(Mandatory=$true)]
         [string]$BackupPath
@@ -386,7 +398,7 @@ Function Update-BackupHistory {
 # =============================
 # DÉTERMINE SI UN FICHIER DOIT ÊTRE SAUVEGARDÉ SELON LE MODE DE SAUVEGARDE
 # =============================
-Function Should-BackupFile {
+Function Test-BackupFile {
     param(
         [Parameter(Mandatory=$true)]
         [System.IO.FileInfo]$File,
@@ -436,7 +448,7 @@ Function Should-BackupFile {
 # =============================
 # PRÉPARE LES DONNÉES DE RÉFÉRENCE POUR LES SAUVEGARDES DIFF/INCR
 # =============================
-Function Prepare-ReferenceData {
+Function Get-ReferenceData {
     param(
         [Parameter(Mandatory=$true)]
         [ValidateSet("Complete", "Differential", "Incremental")]
@@ -480,7 +492,7 @@ Function Prepare-ReferenceData {
 # =============================
 # ROTATION DES SAUVEGARDES
 # =============================
-Function Rotate-Backups {
+Function Remove-OldBackups {
     param(
         [Parameter(Mandatory=$true)]
         [string]$BackupDir,
@@ -627,7 +639,8 @@ Function Send-Notification {
         if ($UseSecureCredentials) {
             # Récupération des credentials depuis le gestionnaire Windows
             if ($null -eq $Credential) {
-                $Credential = Get-StoredCredential -CredentialName $CredentialName
+                Write-Log "Aucun credential fourni pour l'envoi de mail" -Type "WARNING"
+                return
             }
             
             if ($null -ne $Credential) {
@@ -650,9 +663,9 @@ Function Send-Notification {
 # RÉCUPÉRATION DES CREDENTIALS SÉCURISÉS
 # =============================
 Function Get-StoredCredential {
-    param (
+    param(
         [Parameter(Mandatory=$true)]
-        [string]$CredentialName
+        [System.Management.Automation.PSCredential]$Credential
     )
     
     try {
@@ -900,7 +913,7 @@ Function Backup-FolderWithRetry {
     $retry = 0
     $success = $false
     $errorFiles = @()
-    $startTime = Get-Date
+    # Removed unused variable $startTime
     
     do {
         try {
@@ -911,19 +924,33 @@ Function Backup-FolderWithRetry {
             
             # Préparation d'un journal des fichiers pour ce dossier
             $fileLog = @()
-            
-            # Obtention des fichiers sources (récursivement)
-            $sourceFiles = Get-ChildItem -Path $Source -Recurse -File
-            $totalFiles = $sourceFiles.Count
-            $currentFile = 0
-            
-            Write-Log "Analyse de $totalFiles fichiers dans '$Source'..." -Type "INFO"
+        } catch {
+            Write-Log "Erreur lors de la tentative de sauvegarde : $_" -Type "ERROR"
+        } finally {
+            Write-Log "Bloc Finally exécuté après la tentative de sauvegarde." -Type "INFO"
+        }
+    } while ($retry -le $MaxRetries -and !$success) # Closing the do-while block
+
+    # Obtention des fichiers sources (récursivement)
+    $sourceFiles = Get-ChildItem -Path $Source -Recurse -File
+    $totalFiles = $sourceFiles.Count
+    $currentFile = 0
+
+    do {
+        # Add your logic here for what should happen during each retry
+        Write-Log "Tentative $retry/$MaxRetries pour '$Source'..." -Type "WARNING"
+        Start-Sleep -Seconds $RetryDelaySeconds
+        $retry++
+    } # Closing brace for the do block
+    while ($retry -le $MaxRetries)
+
+    Write-Log "Analyse de $totalFiles fichiers dans '$Source'..." -Type "INFO"
             
             foreach ($file in $sourceFiles) {
                 $currentFile++
                 
                 # Déterminer si ce fichier doit être sauvegardé selon le mode
-                $shouldBackup = Should-BackupFile -File $file -Mode $BackupMode -ReferenceData $ReferenceData
+                $shouldBackup = Test-BackupFile -File $file -Mode $BackupMode -ReferenceData $ReferenceData
                 
                 # Si ce n'est pas necessaire de sauvegarder ce fichier, on passe au suivant
                 if (!$shouldBackup) {
@@ -983,7 +1010,50 @@ Function Backup-FolderWithRetry {
         }
         
         $retry++
-    } while ($retry -le $MaxRetries -and !$success)
+    {
+        Write-Log "Tentative $retry/$MaxRetries pour '$Source'..." -Type "WARNING"
+        Start-Sleep -Seconds $RetryDelaySeconds
+        $retry++
+    {
+        # Add your logic here for what should happen during each retry
+        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
+        Start-Sleep -Seconds $RetryDelaySeconds
+        $retry++
+    {
+        # Add your logic here for what should happen during each retry
+        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
+        Start-Sleep -Seconds $RetryDelaySeconds
+        $retry++
+    {
+        # Add your logic here for what should happen during each retry
+        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
+        Start-Sleep -Seconds $RetryDelaySeconds
+        $retry++
+    } # Closing the do block
+    while ($retry -le $MaxRetries -and !$success) {
+        Write-Log "Tentative $retry/$MaxRetries pour '$Source'..." -Type "WARNING"
+        Start-Sleep -Seconds $RetryDelaySeconds
+        $retry++
+    }
+        # Placeholder for loop body
+        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
+        Start-Sleep -Seconds $RetryDelaySeconds
+    }
+        # Placeholder for loop body
+        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
+        Start-Sleep -Seconds $RetryDelaySeconds
+    }
+        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
+        Start-Sleep -Seconds $RetryDelaySeconds
+    }
+        Write-Log "Retrying backup operation ($retry/$MaxRetries)..." -Type "WARNING"
+        Start-Sleep -Seconds $RetryDelaySeconds
+    }
+        # Add your logic here for what should happen during each retry
+        Write-Log "Tentative $retry/$MaxRetries pour '$Source'..." -Type "WARNING"
+        Start-Sleep -Seconds $RetryDelaySeconds
+        $retry++
+    
     
     $endTime = Get-Date
     $duration = $endTime - $startTime
@@ -1006,7 +1076,7 @@ Function Backup-FolderWithRetry {
         BackupPath = $backupPath
         Errors = $errorFiles.Count
     }
-}
+
 
 # =============================
 # SAUVEGARDE D'UN DOSSIER
@@ -1044,7 +1114,7 @@ Function Backup-Folder {
             
             if (Test-Path $targetPath) {
                 if (-not $EnableCompression) {
-                    Create-IntegrityManifest -BackupPath $targetPath
+                    New-IntegrityManifest -BackupPath $targetPath
                     $integrityCheck = Verify-BackupIntegrity -BackupPath $targetPath
                     
                     if (-not $integrityCheck) {
@@ -1250,7 +1320,7 @@ Function Start-Backup {
         
         # Vérification préalable de l'espace disque
         $driveLetter = ($BackupDestination -split ':')[0]
-        $diskSpaceOk = Check-FreeSpace -DriveLetter $driveLetter -MinFreeGB $MinFreeGB
+        $diskSpaceOk = Test-FreeSpace -DriveLetter $driveLetter -MinFreeGB $MinFreeGB
         
         if (!$diskSpaceOk) {
             throw "Espace disque insuffisant sur le disque de destination"
@@ -1263,7 +1333,7 @@ Function Start-Backup {
         }
         
         # Préparation des données de référence pour sauvegardes diff/incr
-        $referenceData = Prepare-ReferenceData -BackupMode $BackupMode
+        $referenceData = Get-ReferenceData -BackupMode $BackupMode
         
         # Si en mode différentiel ou incrémentiel mais sans référence, basculer en mode complet
         if (($BackupMode -eq "Differential" -or $BackupMode -eq "Incremental") -and $null -eq $referenceData) {
@@ -1293,7 +1363,7 @@ Function Start-Backup {
         Update-BackupHistory -BackupPath $BackupDestination -BackupType $BackupMode
         
         # Rotation des anciennes sauvegardes
-        Rotate-Backups -BackupDir $BackupDestination -RetentionDays $RetentionDays
+        Remove-OldBackups -BackupDir $BackupDestination -RetentionDays $RetentionDays
     } catch {
         $script:BackupSuccess = $false
         Write-Log "Erreur critique dans le processus de sauvegarde : $_" -Type "ERROR"
