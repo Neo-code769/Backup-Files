@@ -62,6 +62,7 @@ $ParallelProcessing = if ($null -eq $ParallelProcessing) { $false } else { $Para
 if (-not $MaxParallelJobs) { $MaxParallelJobs = 4 }
 if ($null -eq $RetryCount) { $RetryCount = 3 }
 if (-not $RetryDelay) { $RetryDelay = 30 }  # secondes
+if (-not $RetryDelaySeconds) { $RetryDelaySeconds = $RetryDelay }  # Utiliser $RetryDelay comme valeur par défaut
 if ($null -eq $CollectMetrics) { $CollectMetrics = $true }
 if (-not $MetricsOutputPath) { $MetricsOutputPath = "$PSScriptRoot\metrics.csv" }
 $UseSecureCredentials = if ($null -eq $UseSecureCredentials) { $false } else { $UseSecureCredentials }
