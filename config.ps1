@@ -13,7 +13,7 @@ $SourcePaths = @(
 )
 
 # Destination des sauvegardes
-$BackupDestination = "D:\Sauvegardes"
+$BackupDestination = "C:\Sauvegardes"
 
 # Fichier de journalisation
 $LogFile = "D:\Logs\backup.log"
