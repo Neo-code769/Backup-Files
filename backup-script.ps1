@@ -17,13 +17,13 @@
 # =============================
 
 # Vérification et définition de $PSScriptRoot si nécessaire
-if (-not $PSScriptRoot) {
-    $PSScriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
+if (-not $PSScriptRoot1) {
+    $PSScriptRoot1 = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 }
 
 # Chargement du fichier de configuration
 try {
-    $configPath = Join-Path -Path $PSScriptRoot -ChildPath "config.ps1"
+    $configPath = Join-Path -Path $PSScriptRoot1 -ChildPath "config.ps1"
     if (Test-Path $configPath) {
         . $configPath
         Write-Output "Configuration chargée depuis $configPath"
