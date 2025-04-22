@@ -1,0 +1,45 @@
+# ============================================
+# Script de vérification des sauvegardes
+# Auteur : [TRUBLEREAU PIERRE]
+# Date : [22/04/2025]
+# Description : Outil de vérification d'intégrité des sauvegardes
+# ============================================
+
+#Requires -RunAsAdministrator
+#Requires -Version 5.1
+
+param(
+    [Parameter(Mandatory=$false)]
+    [string]$BackupPath,
+    
+    [Parameter(Mandatory=$false)]
+    [int]$Days = 0,
+    
+    [Parameter(Mandatory=$false)]
+    [string]$ConfigPath = "$PSScriptRoot\config.ps1",
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$GenerateReport
+)
+
+# =============================
+# IMPORT DES FONCTIONS COMMUNES
+# =============================
+. "$PSScriptRoot\backup-script.ps1"
+
+# =============================
+# FONCTION PRINCIPALE
+# =============================
+Function Start-VerificationProcess {
+    Write-Log "=== Début de la vérification d'intégrité ===" -Type "INFO"
+    
+    try {
+        # Si un chemin spécifique est fourni
+        if ($BackupPath) {
+            if (Test-Path $BackupPath) {
+                Write-Log "Vérification de la sauvegarde: $BackupPath" -Type "INFO"
+                $result = Verify-BackupIntegrity -BackupPath $BackupPath
+                
+                if ($result) {
+                    Write-Log "La sauvegarde $BackupPath est intègre" -Type "SUCCESS"
+                } else
